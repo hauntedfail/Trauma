@@ -2452,7 +2452,7 @@ describe("db foundation", () => {
     });
   });
 
-  it("backfills focus-first triage_state and triage_changed_at from pre-0024 rows and enforces triage_state check", () => {
+  it("backfills focus-first triage_state and triage_changed_at from pre-0024 rows and enforces triage_state check (AC 11)", () => {
     const root = mkdtempSync(join(tmpdir(), "trauma-db-"));
     const output = runBunScript(
       `

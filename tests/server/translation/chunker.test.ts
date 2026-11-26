@@ -258,7 +258,9 @@ describe("translation chunker", () => {
   });
 
   it("builds a large admitted short-sentence manifest without losing order", {
-    timeout: 5_000,
+    // ~4s in isolation; full-suite contention pushes it to ~7s. 15s still
+    // fails fast on a superlinear regression in segment projection.
+    timeout: 15_000,
   }, () => {
     const sentenceCount = 15_000;
     const markdown =

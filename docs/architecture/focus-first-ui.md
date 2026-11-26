@@ -1,6 +1,6 @@
 # Focus-First UI Architecture
 
-Status: implemented (Phases A–E complete). Date: 2026-11-25.
+Status: implemented (Phases A–E complete; reconciled with D5, D11, and D12). Date: 2026-11-26.
 
 This document defines TRAUMA's focus-first shell, browse, and reader surfaces
 derived from the ADHD-focus literature in
@@ -42,7 +42,7 @@ marked as such.
 | # | Decision | Evidence | Strength |
 |---|---|---|---|
 | D1 | Capture never asks for a category or tag. New items land on a Shelf; classification is deferred until after reading. | Chang et al. CHI '21 (premature categorization cost); Gstell CHI '26 (Shelf vs. Topic groups, d=0.63 lower saving friction) | Strong |
-| D2 | Separate *choosing* from *reading*: a short Today list (picked items) is distinct from the Shelf and from the Library. | Gstell CHI '26 (ephemeral vs. long-term structures); catalog plugin 7 (Daily Pick cap) | Strong for separation; cap size is a tunable parameter |
+| D2 | Separate *choosing* from *reading*: a short Today list (picked items) is distinct from the Shelf and from the Library. | Gstell CHI '26 (ephemeral vs. long-term structures); catalog plugin 7 (`ephemeral-shelf-triage` cap) | Strong for separation; cap size is a tunable parameter |
 | D3 | No unread counts, overdue badges, streaks, or "N items waiting" anywhere. | Protocol §2 Hard Prohibitions; Navneet et al. arXiv '26 (RSD-safe feedback) | Moderate, adopted as a hard rule |
 | D4 | Length is shown as a bucket (short / medium / long) and progress as distance traveled (section 3 of 7), never as minutes left. | Navneet et al. arXiv '26 (temporal landmarks instead of countdowns) | Moderate |
 | D5 | *(Revised 2026-11-25)* No persistent side rails **and no multi-tab Inspector drawer**. Each secondary reader control is spatially co-located where its need arises and remains hidden during reading: Outline + Marks live in the collapsed left Landmark Rail, Translate lives on `ReaderVariantTabs`, and rare metadata/actions live in a quiet `⋯` top-bar popover. | Llana et al. CHI EA '26 (distraction-free, customizable layouts); Spiel et al. CHI '22 (user control); Ayres & Sweller 2021 / Ginns 2006 / Schroeder & Cenkci 2018 (Split-Attention Effect under constrained working memory) | Strong |
@@ -79,8 +79,8 @@ core. Anything whose benefit differs between people is a plugin.
 | Shelf / Today / Library lanes and triage actions | Core | D1, D2 |
 | Shelf TTL expiry and Today cap | Plugin `ephemeral-shelf-triage` (parameters) | Off means no expiry and no cap. Evaluated with ABAB (carryover). |
 | No debt counters | Core, not configurable | D3 |
-| Reader single column and measure tokens | Core | D6 |
-| Font presets, size, line height, bionic prefix | Plugin `bionic-typography-lab` | Bionic stays labelled experimental. |
+| Reader single column, measure tokens, and reading font presets (`Sans`, `Serif`, `Focus`, `Mono`) | Core | D6; font presets live in the Theme popover (`data-reader-font`). |
+| Extended typography lab (size, line height, experimental bionic prefix) | Plugin `bionic-typography-lab` | Bionic stays labelled experimental. |
 | Last-position persistence | Core | D7; data source for Today and for the beacon. |
 | Visual re-entry cue after interruption | Plugin `resumption-beacon` | |
 | Landmark rail (outline as section nodes) | Core, collapsed by default | Replaces the right-rail TOC. Breakpoint nudges stay in plugin `temporal-landmark-bar`. |
@@ -95,13 +95,13 @@ Four modes, each with one job:
 ```mermaid
 flowchart LR
   Capture["Capture: URL only"] --> Shelf
-  Shelf -- "Pick" --> Today
-  Shelf -- "Keep" --> Library
-  Shelf -- "Let go" --> Archive
+  Shelf -- "Today" --> Today
+  Shelf -- "Library" --> Library
+  Shelf -- "Archive" --> Archive
   Today -- "Read" --> Reader
-  Reader -- "Finish: Keep" --> Library
-  Reader -- "Finish: Let go" --> Archive
-  Reader -- "Not now" --> Shelf
+  Reader -- "Library" --> Library
+  Reader -- "Archive" --> Archive
+  Reader -- "Shelf" --> Shelf
   Library -- "Read" --> Reader
 ```
 
@@ -112,7 +112,7 @@ flowchart LR
 - **Today** holds up to N picked items (default 3 when the cap is on). It is
   the default landing view.
 - **Library** holds kept and finished items. It is search-first and carries the
-  category, tag, and Flashback filters that currently live in the right rail.
+  category, tag, and Flashback filters inside its on-demand `Filters` popover.
 - **Archive** is a soft state. Archived items are searchable in Library with an
   explicit `in:archive` term and can be restored.
 
@@ -151,30 +151,30 @@ heading. Lane changes go through one mutation endpoint
 ## 5. Shell
 
 ```text
-Desktop >= 1041px
+Desktop and Tablet >= 721px
 +----+--------------------------------------------+
-| 56 |            route canvas (centered)         |
+| 56 |         route canvas (max 920px)           |
 | px |  browse: max 720px   reader: measure-bound |
 |rail|                                            |
 +----+--------------------------------------------+
-            inspector (overlay, 400px) opens from the right on demand
 ```
 
-- **Left rail**: 56px icon column (Today, Shelf, Library, Flashbacks, Moments,
-  Settings, then Add and Theme at the bottom). Labels appear on hover/focus as
-  tooltips and permanently when the user expands the rail to 200px; the
-  expanded state is persisted. The accent-filled "Add memory" pill is removed;
-  Add becomes a normal icon button. Active route keeps the filled icon and,
-  on paper themes, the hand-drawn underline moves under the icon.
-- **No right rail.** Its contents move: category, tag, and Flashback filters to the
-  Library filter popover; TOC to the reader landmark rail; Flashback shortcuts
-  to Library.
+- **Left rail**: fixed 56px icon column on `>= 721px` (`Today`, `Shelf`,
+  `Library`, `Flashbacks`, `Moments`, `Settings`, plus `Add`, `Search / Palette`,
+  and `Theme` popovers). Labels appear on hover/focus as tooltips. The
+  accent-filled "Add memory" pill is removed; Add is a normal icon button. The
+  `Theme` popover hosts brightness, surface, and reading font presets (`Sans`,
+  `Serif`, `Focus`, `Mono`). Active route keeps the filled icon and, on paper
+  themes, the hand-drawn underline moves under the icon.
+- **No right rail.** Its contents move: category, tag, and Flashback filters to
+  the Library filter popover; TOC and current-memory Marks to the reader
+  landmark rail; Flashback shortcuts to Library.
 - **Reader mode hides the rail** after the first downward scroll and reveals it
-  on pointer approach to the left edge, upward scroll, or `Esc`.
-- **Tablet** (721–1040px): same rail, never expanded. **Phone** (<=720px):
-  bottom tabs reduced to Today, Shelf, Library, More (Flashbacks, Moments,
-  Settings). Disabled placeholder tabs (Categories, Tags, Backup) are removed;
-  dead affordances are noise.
+  on pointer approach to the left edge, upward scroll, keyboard focus, or `Esc`.
+- **Phone** (`<= 720px`): compact brand header (Search/Palette and Capture) plus
+  bottom tabs reduced to `Today`, `Shelf`, `Library`, and `More` (`Flashbacks`,
+  `Moments`, `Settings`, `Theme`). Disabled placeholder tabs (Categories, Tags,
+  Backup) are removed; dead affordances are noise.
 - **Command palette** (`Cmd/Ctrl+K`): search memories by title/URL/taxonomy,
   jump to any route, add a URL, move the focused item between lanes, and toggle
   focus plugins. It reuses the existing browse search backend.
@@ -203,19 +203,21 @@ structure and density change.
 
 ### Today
 
-- Up to N rows. When the cap is reached, Pick is disabled with the neutral
-  text "Today is full. Finish or return one first."
+- Up to N rows. When the cap is reached, moving an item to `Today` is disabled
+  with the neutral text "Today is full. Finish or return one first."
 - Empty state: "Nothing picked. Choose from the Shelf when you're ready." with
-  a link to the Shelf. No encouragement copy, no counts.
-- Primary action per row: Read (Enter). Secondary: Not now (back to Shelf),
-  Let go.
+  a link to the Shelf (`Open Shelf`). No encouragement copy, no counts.
+- Primary action per row: open in Reader (`Enter`). Secondary triage actions:
+  `Shelf` (return to Shelf), `Archive` (`x`).
 
 ### Shelf
 
 - Newest first, cursor-paginated, no total.
-- Keys: `j`/`k` move, `p` pick, `l` keep, `x` let go, `Enter` read, `u` undo
-  the last triage action (toast with Undo for 6s, no confirmation dialogs for
-  reversible actions).
+- Visible row controls use destination labels: `Today`, `Library`, `Archive`
+  (D11).
+- Keys: `j`/`k` (or arrow keys) move, `p` -> `Today`, `l` -> `Library`,
+  `x` -> `Archive`, `Enter` open in Reader, `u` undo the last triage action
+  (toast with Undo for 6s, no confirmation dialogs for reversible actions).
 - Items past TTL render under "Still here" (or are soft-archived, per plugin
   setting). Never red, never a number.
 
@@ -243,9 +245,11 @@ structure and density change.
   popover for rare metadata/management actions (URL, captured date, categories,
   tags, read state, delete). No `Inspector` button and no 5-tab side drawer
   (revised D5).
-- **Text column**: measure token `--reader-measure` (default 66ch), body size
-  and line-height from tokens. The typography plugin may override them. Opening
-  any popover or margin card never shifts the column width or horizontal
+- **Text column**: measure token `--reader-measure` (default 66ch; CJK
+  languages override via `:lang(ja)` / `:lang(zh)` and `:lang(ko)`), body size,
+  line-height, and selectable reading font presets (`Sans`, `Serif`, `Focus`,
+  `Mono`) from tokens. Opening any popover, landmark panel, margin card, or
+  the on-demand Psychiatrist sheet never shifts the column width or horizontal
   position.
 - **Landmark rail**: a thin column of section nodes on the left; nodes up to
   the current section are filled (distance traveled). Hover or focus expands it
@@ -253,26 +257,31 @@ structure and density change.
   current-memory Flashbacks mapped to document order). Reuses
   `toc-scroll-spy.ts` / `toc-reading-range.ts`.
 - **Selection & In-Situ AI Margin Notes** (D12): selecting text opens the
-  reader selection menu with `Flashback` plus 1-tap deictic AI actions
-  (`Simplify`, `Explain`, `Ask…`). Activating an AI action attaches the
-  selected passage, surrounding section, and memory metadata automatically and
-  renders an **in-situ margin card** (or compact bottom sheet on narrow
-  viewports) formatted through `adaptive-ai-presenter`. Users can pin the
-  result as a note or Flashback, dismiss it, or explicitly escalate to a deeper
-  thread / external agent. No chat sidebar is docked by default.
-- **Headless Agent API** (D12): `/api/agent/v1/*` exposes TRAUMA's shared
-  reading state (memories, reading `last_position`, Flashbacks, Moments,
-  triage lanes, and in-situ query execution) over JSON REST + SSE so external
-  agents (Hermes, CLI tools, custom clients) operate on the exact same contract
-  as the reader UI.
+  reader selection menu with `Flashback` (and `Moment` when a section applies)
+  plus 1-tap deictic AI actions (`Simplify`, `Explain`, `Ask`). Activating an
+  AI action attaches the selected passage, surrounding section, and memory
+  metadata automatically and renders an **in-situ margin card** (or compact
+  bottom sheet on narrow viewports) showing the passage snippet and output
+  formatted through `adaptive-ai-presenter`. Readers can ask a follow-up,
+  dismiss the card (`Escape` or Close), or explicitly escalate via
+  `Continue in Psychiatrist` to the on-demand Psychiatrist sheet (also toggled
+  with `]`; see AC 15 for the full entry contract). No chat sidebar is docked
+  by default.
+- **Headless Agent API** (D12): `/api/agent/v1/*` (`GET /context`,
+  `GET /memories/:id`, `POST /memories/:id/triage`, `POST /memories/:id/ask`)
+  exposes TRAUMA's shared reading state (memories, reading `last_position`,
+  Flashbacks, Moments, triage lanes, and in-situ query execution) over JSON
+  REST + SSE so external agents (Hermes, CLI tools, custom clients) operate on
+  the exact same contract as the reader UI.
 - **Position**: core saves `last_position` on paragraph change (debounced 2s),
   on `visibilitychange: hidden`, and on route leave. Reopen restores the
   position silently; the resumption plugin adds the visual cue.
 - **End of article**: a quiet footer offers destination-explicit triage
-  controls (`Library`, `Archive`, `Shelf` — D11) and, if the experiment log is
-  on, the 3-state pulse. This is the only place the reader asks anything (D8).
-  Reaching 75% depth with >= 20s dwell marks `read` automatically (the
-  protocol's completion definition), reversible in the `⋯` menu.
+  controls (`Library`, `Archive`, `Shelf` — D11) and, if focus plugins or the
+  experiment log are active, the 3-state pulse. This is the only place the
+  reader asks anything (D8). Reaching 75% depth with >= 20s dwell marks `read`
+  automatically (the protocol's completion definition), reversible in the `⋯`
+  menu.
 
 ## 8. Plugin Surfaces After the Redesign
 
@@ -294,15 +303,21 @@ with the plugin supplying only TTL and cap parameters.
   palette and in Settings.
 - Auto-hide chrome never traps focus: keyboard focus entering the top bar or
   rail reveals it.
-- `prefers-reduced-motion` disables slide and fade transitions (inspector,
-  rail reveal, beacon fade) and shows end states.
-- The inspector is a dialog with focus return on close; lanes use
+- `prefers-reduced-motion` disables slide and fade transitions (top bar,
+  landmark rail, Psychiatrist sheet, rail reveal, beacon fade) and shows end
+  states.
+- Reader popovers (`Translate`, `⋯` details and actions) and the on-demand
+  Psychiatrist sheet are dialogs (`role="dialog"`) with focus return on close;
+  in-situ margin notes dismiss with `Escape` and return focus; browse lanes use
   `role="list"` with roving tabindex.
 
 ## 10. Acceptance Criteria
 
 Each item is checked by an automated test (Vitest for units, Playwright for
-routes) before the phase is accepted.
+routes) before the phase is accepted. The machine-checked manifest
+`tests/contracts/focus-first-ui.contract.ts` (verified by
+`tests/contracts/focus-first-ui-contract.test.ts`) is the binding between each
+criterion below and its test file and title.
 
 1. At 1280x800 no element wider than 80px exists to the right of the main
    canvas on `/memories` (right rail removed).
@@ -313,9 +328,12 @@ routes) before the phase is accepted.
 3. Saving a URL creates a row with `triage_state = 'shelf'` and never opens a
    taxonomy prompt.
 4. `p`, `l`, `x`, `u` on a focused Shelf row persist the expected
-   `triage_state` and survive reload; Pick is refused when Today is at cap.
+   `triage_state` and survive reload; moving to `Today` is refused when Today
+   is at cap.
 5. Reader text column computed width is <= 75ch and >= 55ch at 1280px and at
-   1920px, and does not change when the inspector opens.
+   1920px, and its width and horizontal position do not change when any reader
+   micro-surface (landmark rail, Translate popover, `⋯` overflow popover,
+   margin note card, or Psychiatrist sheet) opens.
 6. Reloading a reader after scrolling to section 4 restores the same heading
    in the viewport and Today shows "continue at 4/N".
 7. No dialog, toast, or prompt appears in the reader before the end footer is
@@ -324,18 +342,32 @@ routes) before the phase is accepted.
    URL, and plugin toggles work from it.
 9. Phone viewport shows exactly four bottom tabs and no disabled tabs.
 10. axe-core reports no serious or critical violations on Today, Shelf,
-    Library, and the reader with the inspector open and closed.
+    Library, and the reader with its micro-surfaces (Details popover, Translate
+    popover, and Psychiatrist sheet) closed and open.
 11. Migration backfills existing rows (`read` -> `library`, others -> `shelf`)
     and is covered by the existing cross-process migration tests.
+12. The reader renders no `Inspector` control and no tabbed side drawer; rare
+    metadata and management actions live inside the quiet `⋯` overflow popover.
+13. No rendered control text matches `Pick`, `Not now`, `Keep`, or `Let go`;
+    triage controls are named by destination (`Today`, `Shelf`, `Library`,
+    `Archive`).
+14. Selecting reader text offers `Simplify`, `Explain`, and `Ask`, and
+    activating one renders an in-situ margin card containing the selected
+    passage snippet while no chat surface is open by default.
+15. The Psychiatrist thread opens from a visible control in the reader overflow
+    popover, from the command palette (`Open Psychiatrist`) on reader routes,
+    and with the `]` key, and closing it returns focus to the invoking control.
+16. The `/api/agent/v1` endpoints return the documented JSON shapes and respond
+    `401` for a wrong bearer token when `TRAUMA_API_TOKEN` is configured.
 
 ## 11. Delivery Phases
 
 | Phase | Scope | Exit |
 |---|---|---|
-| A | Data: migration, triage endpoint, `last_position` writes, repository and API tests | AC 3, 4 (API level), 11 |
+| A | Data: migration, triage endpoint, `last_position` writes, repository and API tests, headless `/api/agent/v1` endpoints | AC 3, 4 (API level), 11, 16 |
 | B | Shell: slim rail, right rail removal, command palette, phone tabs | AC 1, 8, 9 |
-| C | Browse lanes: Today, Shelf, Library, row anatomy, triage keys | AC 2, 4 (UI) |
-| D | Reader: canvas, landmark rail, inspector, end footer, position restore | AC 5, 6, 7 |
+| C | Browse lanes: Today, Shelf, Library, row anatomy, destination triage labels and keys | AC 2, 4 (UI), 13 |
+| D | Reader: canvas, landmark rail, co-located popovers (`+ Translate`, `⋯`), in-situ AI margin notes, on-demand Psychiatrist sheet, end footer, position restore | AC 5, 6, 7, 12, 14, 15 |
 | E | Plugin re-mount, remove `EphemeralShelfBar`, accessibility pass, docs (`ui-and-routing.md`, design-system shell and reader docs, glossary) | AC 10, all green |
 
 Phases A and B are independent. C depends on A and B. D depends on A and B.
@@ -352,3 +384,14 @@ if the owner prefers otherwise.
 - Landing view is Today.
 - Phone "More" tab instead of a fifth tab.
 - Auto-mark `read` at the protocol's completion threshold, reversible.
+- Isolated verification output directory: `.output-verify/`.
+- Verification-plus-e2e script name: `verify:full` (verify, then Playwright).
+- Shelf keys `p`, `l`, `x`, `u` stay as they are; the document names each next
+  to the destination label it triggers (`Today`, `Library`, `Archive`, Undo)
+  instead of adding aliases.
+- Palette command label for escalating to Psychiatrist: `Open Psychiatrist`,
+  listed only on reader routes (AC 15).
+- The AC-to-test contract manifest lives in `tests/contracts/` and matches tests
+  by title substring.
+- `lengthBucket` in the agent API: derived when the word count is available in
+  the row, otherwise documented as nullable.
