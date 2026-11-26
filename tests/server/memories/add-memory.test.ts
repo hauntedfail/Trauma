@@ -1711,6 +1711,130 @@ describe("add memory orchestration", () => {
       lastBackupError: null,
     });
   });
+
+  it("uses the shared CJK-aware word counter on the fallback path when the importer omits wordCount", async () => {
+    const root = await makeRoot();
+    const output = runBunScript(
+      `
+        import { join } from "node:path";
+        import { initializeDatabase } from "./src/server/db/index.ts";
+        import { addMemory } from "./src/server/memories/add-memory.ts";
+
+        const root = process.env.TRAUMA_TEST_ROOT;
+        if (!root) {
+          throw new Error("TRAUMA_TEST_ROOT is required");
+        }
+
+        const config = createConfig(root);
+        const connection = initializeDatabase(config);
+
+        try {
+          const japaneseFallback = await addMemory({
+            url: "https://example.com/japanese-fallback",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/japanese-fallback",
+                title: "Japanese Fallback",
+                description: null,
+                faviconUrl: null,
+                markdown: "日本語の本文を保存する",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("backup should be disabled");
+              },
+            },
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef121")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          const explicitCount = await addMemory({
+            url: "https://example.com/explicit-word-count",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "success",
+                url: "https://example.com/explicit-word-count",
+                title: "Explicit Word Count",
+                description: null,
+                faviconUrl: null,
+                markdown: "One two",
+                wordCount: 321,
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("backup should be disabled");
+              },
+            },
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef122")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          const linkOnly = await addMemory({
+            url: "https://example.com/link-only-word-count",
+            config,
+            db: connection.db,
+            importer: {
+              importUrl: async () => ({
+                status: "link_only",
+                url: "https://example.com/link-only-word-count",
+                title: "Link Only",
+                extractionError: "blocked",
+              }),
+            },
+            backupQueue: {
+              enqueue: async () => {
+                throw new Error("backup should be disabled");
+              },
+            },
+            generateId: () => ${JSON.stringify("018f2d6d-7cbd-7a4c-8d32-9f0b5f0ef123")},
+            now: () => new Date(${JSON.stringify(capturedAt.toISOString())}),
+          });
+
+          process.stdout.write(
+            JSON.stringify({
+              japaneseWordCount: japaneseFallback.wordCount,
+              explicitWordCount: explicitCount.wordCount,
+              linkOnlyWordCount: linkOnly.wordCount,
+            }),
+          );
+        } finally {
+          connection.close();
+        }
+
+        function createConfig(root) {
+          return {
+            configFilePath: join(root, "trauma.config.json"),
+            projectPath: join(root, "data"),
+            storePath: join(root, "data/store"),
+            databasePath: join(root, ".trauma/trauma.sqlite"),
+            backup: {
+              git: {
+                enabled: false,
+                remote: "origin",
+                branch: "main",
+                push: false,
+                commitMessageTemplate: "backup memory {memoryId}",
+              },
+            },
+          };
+        }
+      `,
+      root,
+    );
+    const { japaneseWordCount, explicitWordCount, linkOnlyWordCount } = JSON.parse(output);
+
+    // "日本語の本文を保存する" has 11 CJK characters (whitespace split would return 1).
+    expect(japaneseWordCount).toBe(11);
+    expect(explicitWordCount).toBe(321);
+    expect(linkOnlyWordCount).toBeNull();
+  });
 });
 
 async function makeRoot() {

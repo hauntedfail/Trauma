@@ -1,5 +1,6 @@
 import { loadTraumaConfig } from "../src/server/config";
 import { initializeDatabase } from "../src/server/db";
+import { backfillMemoryWordCounts } from "../src/server/memories/word-count";
 import { backfillMemorySearchIndex } from "../src/server/search";
 
 interface ParsedArguments {
@@ -32,12 +33,16 @@ async function migrateDatabase(configPath?: string) {
   const connection = initializeDatabase(config);
 
   try {
-    const backfill = await backfillMemorySearchIndex({
+    const searchBackfill = await backfillMemorySearchIndex({
+      db: connection.sqlite,
+      storePath: config.storePath,
+    });
+    const wordCountBackfill = await backfillMemoryWordCounts({
       db: connection.sqlite,
       storePath: config.storePath,
     });
     process.stdout.write(
-      `Applied runtime migrations to ${config.databasePath} (indexed ${backfill.indexed} memories)\n`,
+      `Applied runtime migrations to ${config.databasePath} (indexed ${searchBackfill.indexed} memories; word_count filled ${wordCountBackfill.filled}, skipped ${wordCountBackfill.skippedMissingFiles}, errored ${wordCountBackfill.errors.length})\n`,
     );
   } finally {
     connection.close();

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,6 +56,115 @@ describe("db:migrate command", () => {
 
     expect(rerun.status).not.toBe(0);
     expect(rerun.stderr).toContain("bundled migration hash mismatch");
+  });
+
+  it("backfills NULL word_count rows from stored CONTENT.md and reports counts on stdout", () => {
+    const root = mkdtempSync(join(tmpdir(), "trauma-db-migrate-"));
+    try {
+      const configPath = writeRuntimeConfig(root);
+      const databasePath = join(root, "runtime", "trauma.sqlite");
+      const storePath = join(root, "data", "store");
+
+      const initial = runDatabaseMigration(configPath);
+      expect(initial.status).toBe(0);
+      expect(initial.stdout).toContain(
+        `Applied runtime migrations to ${databasePath}`,
+      );
+      expect(initial.stdout).toContain("word_count filled 0, skipped 0, errored 0");
+
+      const filledId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f601";
+      const missingId = "018f04a2-3c6f-7c88-9a8b-8c99a9b7f602";
+      const originalUpdatedAt = Date.parse("2026-05-09T01:23:45.000Z");
+
+      const database = new Database(databasePath);
+      try {
+        const insertMemory = database.prepare(
+          `INSERT INTO memories (
+            id, url, title, description, content_path, extraction_status,
+            word_count, backup_status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        insertMemory.run(
+          filledId,
+          "https://example.com/backfill-word-count",
+          "Japanese Article",
+          null,
+          `memories/${filledId}/CONTENT.md`,
+          "success",
+          null,
+          "disabled",
+          originalUpdatedAt,
+          originalUpdatedAt,
+        );
+        insertMemory.run(
+          missingId,
+          "https://example.com/missing-word-count",
+          "Missing Content",
+          null,
+          `memories/${missingId}/CONTENT.md`,
+          "success",
+          null,
+          "disabled",
+          originalUpdatedAt + 1000,
+          originalUpdatedAt + 1000,
+        );
+      } finally {
+        database.close();
+      }
+
+      const contentDir = join(storePath, "memories", filledId);
+      mkdirSync(contentDir, { recursive: true });
+      writeFileSync(
+        join(contentDir, "CONTENT.md"),
+        [
+          "---",
+          `id: "${filledId}"`,
+          'url: "https://example.com/backfill-word-count"',
+          'title: "Frontmatter Excluded"',
+          'captured_at: "2026-05-09T01:23:45.000Z"',
+          'extraction_status: "success"',
+          "---",
+          "日本語の文章です",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const backfillRun = runDatabaseMigration(configPath);
+      expect(backfillRun.status).toBe(0);
+      expect(backfillRun.stdout).toContain(
+        `Applied runtime migrations to ${databasePath}`,
+      );
+      expect(backfillRun.stdout).toContain("word_count filled 1, skipped 1, errored 0");
+
+      const verifyDb = new Database(databasePath, { readonly: true });
+      try {
+        const filledRow = verifyDb
+          .query<
+            { wordCount: number | null; updatedAt: number },
+            [string]
+          >("SELECT word_count AS wordCount, updated_at AS updatedAt FROM memories WHERE id = ?")
+          .get(filledId);
+        const missingRow = verifyDb
+          .query<{ wordCount: number | null }, [string]>(
+            "SELECT word_count AS wordCount FROM memories WHERE id = ?",
+          )
+          .get(missingId);
+
+        expect(filledRow).toEqual({
+          wordCount: 8,
+          updatedAt: originalUpdatedAt,
+        });
+        expect(missingRow).toEqual({ wordCount: null });
+      } finally {
+        verifyDb.close();
+      }
+
+      const idempotentRun = runDatabaseMigration(configPath);
+      expect(idempotentRun.status).toBe(0);
+      expect(idempotentRun.stdout).toContain("word_count filled 0, skipped 1, errored 0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

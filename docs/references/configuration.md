@@ -78,6 +78,15 @@ SQLite file and holds it until the connection closes. Stop the server and any
 other maintenance process first; an active owner makes the command exit without
 creating the database.
 
+After the migrations, `db:migrate` runs two idempotent backfills from stored
+content. It indexes every memory missing from the search index, which the app
+also does on the first search. It fills `memories.word_count` for successfully
+extracted memories that have none, counted from the stored `CONTENT.md`; only
+this command fills word counts, so run it once on a database created before
+migration `0024`. The command prints how many memories were indexed and how many
+word counts were filled, skipped because the content file is missing, or
+errored.
+
 `databasePath`, `projectPath`, and `storePath` are restart-scoped. Manual edits
 to those fields are rejected before a running server opens the new storage;
 restart TRAUMA to adopt them. Other JSON settings follow their owning runtime

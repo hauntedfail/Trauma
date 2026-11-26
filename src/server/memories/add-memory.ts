@@ -24,6 +24,7 @@ import {
   recoverInterruptedMemoryOperations,
 } from "./operation-journal";
 import { withMemoryOperationMutationLease } from "./operation-coordination";
+import { countMarkdownWords } from "./word-count";
 import { markdownToSearchText, upsertMemorySearchDocument } from "../search";
 
 export interface MemoryImporter {
@@ -331,9 +332,5 @@ function resolveImportedWordCount(imported: ImporterResult): number | null {
     return Math.round(candidate);
   }
 
-  const plainText = markdownToSearchText(imported.markdown).trim();
-  if (plainText.length === 0) {
-    return 0;
-  }
-  return plainText.split(/\s+/).length;
+  return countMarkdownWords(imported.markdown);
 }
